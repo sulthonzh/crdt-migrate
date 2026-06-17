@@ -1,0 +1,46 @@
+{
+  "name": "crdt-migrate",
+  "version": "1.0.0",
+  "description": "CLI tool for migrating SQLite databases to CRDT-compatible schemas",
+  "main": "dist/index.js",
+  "bin": {
+    "crdt-migrate": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "crdt",
+    "sqlite",
+    "migration",
+    "database",
+    "local-first",
+    "offline-first",
+    "sync"
+  ],
+  "author": "Sulthon Zh",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.0.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^0.34.0"
+  },
+  "files": [
+    "dist"
+  ]
+}
