@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { exec } from 'child_process';
+import { exec as execCb } from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
+
+const exec = promisify(execCb);
 
 // Create a test database
 async function createTestDatabase(dbPath: string): Promise<void> {
@@ -37,44 +40,40 @@ async function createTestDatabase(dbPath: string): Promise<void> {
 
 describe('CLI Tests', () => {
   let testDbPath: string;
-  let buildDir: string;
 
   beforeEach(async () => {
     testDbPath = path.join(__dirname, 'cli-test.db');
-    buildDir = path.join(__dirname, 'dist');
-    
-    await fs.mkdir(buildDir, { recursive: true });
+    // Clean up any leftover database files
+    try { await fs.unlink(testDbPath); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'crdt-cli-test.db')); } catch {}
     await createTestDatabase(testDbPath);
   });
 
   afterEach(async () => {
-    try {
-      await fs.unlink(testDbPath);
-      await fs.rm(buildDir, { recursive: true, force: true });
-    } catch (error) {
-      // Ignore cleanup errors
-    }
+    try { await fs.unlink(testDbPath); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'crdt-cli-test.db')); } catch {}
+    try { await fs.rm(path.join(process.cwd(), 'preview'), { recursive: true, force: true }); } catch {}
   });
 
   it('should show help', async () => {
-    const result = await exec('node dist/index.js --help');
-    expect(result.stdout).toContain('crdt-migrate');
-    expect(result.stdout).toContain('CLI tool for migrating SQLite databases');
+    const { stdout } = await exec('node dist/index.js --help');
+    expect(stdout).toContain('crdt-migrate');
+    expect(stdout).toContain('CLI tool for migrating SQLite databases');
   });
 
   it('should analyze database and show issues', async () => {
-    const result = await exec(`node dist/index.js analyze ${testDbPath}`);
-    expect(result.stdout).toContain('Analyzing database');
-    expect(result.stdout).toContain('Analysis complete');
-    expect(result.stdout).toContain('AUTO_INCREMENT_PRIMARY_KEY');
-    expect(result.stdout).toContain('NON_TEXT_PRIMARY_KEY');
+    const { stdout } = await exec(`node dist/index.js analyze ${testDbPath}`);
+    expect(stdout).toContain('Analyzing database');
+    expect(stdout).toContain('Analysis complete');
+    expect(stdout).toContain('AUTO_INCREMENT_PRIMARY_KEY');
+    expect(stdout).toContain('NON_TEXT_PRIMARY_KEY');
   });
 
   it('should generate preview of migration', async () => {
-    const result = await exec(`node dist/index.js preview ${testDbPath} --output ./preview`);
-    expect(result.stdout).toContain('Generating preview');
-    expect(result.stdout).toContain('Preview generated');
-    expect(result.stdout).toContain('Migration SQL files');
+    const { stdout } = await exec(`node dist/index.js preview ${testDbPath} --output ./preview`);
+    expect(stdout).toContain('Generating preview');
+    expect(stdout).toContain('Preview generated');
+    expect(stdout).toContain('Migration SQL files');
   });
 
   it('should handle database that is already CRDT compatible', async () => {
@@ -104,14 +103,19 @@ describe('CLI Tests', () => {
       });
     });
 
-    const result = await exec(`node dist/index.js analyze ${crdtDbPath}`);
-    expect(result.stdout).toContain('Database is CRDT compatible');
+    const { stdout } = await exec(`node dist/index.js analyze ${crdtDbPath}`);
+    expect(stdout).toContain('Database is CRDT compatible');
 
     await fs.unlink(crdtDbPath);
   });
 
   it('should handle missing database file gracefully', async () => {
-    const result = await exec(`node dist/index.js analyze nonexistent.db`);
-    expect(result.stderr).toContain('failed');
+    try {
+      await exec(`node dist/index.js analyze ${path.join(__dirname, 'nonexistent.db')}`);
+      expect(true).toBe(false); // Should have thrown
+    } catch (err: any) {
+      const output = (err.stderr || '') + (err.stdout || '');
+      expect(output).toContain('failed');
+    }
   });
 });

@@ -33,6 +33,20 @@ export class CRDTMigrator {
       // Analyze the database
       const analysis = await this.analyzer.analyze();
 
+      // Early return if no migration needed
+      if (!analysis.needsMigration) {
+        this.logger.info('Database is already CRDT compatible');
+        return {
+          success: true,
+          message: 'Database is already CRDT compatible',
+          backupFile: undefined,
+          sqlFiles: [],
+          tablesMigrated: 0,
+          issuesResolved: 0,
+          warnings: this.generateWarnings(analysis)
+        };
+      }
+
       // Generate backup if requested
       let backupFile: string | undefined;
       if (this.options.backup) {
@@ -85,15 +99,32 @@ export class CRDTMigrator {
       const analysis = await this.analyzer.analyze();
       const sqlFiles = await this.generateMigrationSQL(analysis);
 
+      const tablesToMigrate = analysis.tables.filter(t =>
+        t.hasAutoIncrement ||
+        (t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== 'text')
+      ).length;
+
+      const primaryKeysToConvert = analysis.tables.filter(t =>
+        t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== 'text'
+      ).length;
+
+      const foreignKeysToUpdate = analysis.tables.reduce(
+        (sum, t) => sum + t.foreignKeys.length, 0
+      );
+
+      const columnsToModify = analysis.tables.reduce(
+        (sum, t) => sum + t.nullableColumns.length, 0
+      );
+
       return {
-        databasePath: analysis.databasePath,
-        totalTables: analysis.totalTables,
-        needsMigration: analysis.needsMigration,
-        issues: analysis.issues,
-        tables: analysis.tables,
-        summary: analysis.summary,
-        sqlFiles: sqlFiles.slice(0, 2), // Show first 2 SQL files for preview
-        estimatedTime: this.estimateMigrationTime(analysis),
+        sqlFiles: sqlFiles,
+        summary: {
+          tablesToMigrate,
+          primaryKeysToConvert,
+          foreignKeysToUpdate,
+          columnsToModify,
+          estimatedTime: this.estimateMigrationTime(analysis)
+        },
         warnings: this.generateWarnings(analysis)
       };
 
@@ -124,8 +155,66 @@ export class CRDTMigrator {
 
     const sqlFiles: string[] = [];
 
+    // First, generate data migration scripts (run BEFORE schema changes)
+    let dataSQL = `-- CRDT Data Migration Script (run BEFORE migration.sql)
+-- Generated: ${timestamp}
+
+-- Enable foreign key constraints
+PRAGMA foreign_keys = OFF;
+
+-- Disable triggers during migration
+PRAGMA recursive_triggers = OFF;
+
+`;
+
+    // Create data conversion scripts for each table
+    analysis.tables.forEach(table => {
+      if (table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() !== 'text') {
+        const pkColumn = table.columns.find(col => col.primaryKey);
+        if (!pkColumn) return;
+        
+        // Build column list for INSERT (exclude old PK)
+        const columns = table.columns.filter(c => !c.primaryKey).map(col => {
+          // Check if this is a FK column that references a converted PK
+          const fk = table.foreignKeys.find(f => f.from === col.name);
+          if (fk) {
+            const refTable = analysis.tables.find(t => t.name === fk.table);
+            if (refTable && refTable.primaryKeyType?.toLowerCase() !== 'text') {
+              return `${col.name} TEXT`; // FK column also needs to be TEXT
+            }
+          }
+          return col.name;
+        });
+        
+        const selectColumns = table.columns.filter(c => !c.primaryKey).map(c => c.name).join(', ');
+        
+        if (columns.length === 0) {
+          // Table only has PK column, just generate UUIDs
+          dataSQL += `-- Create temporary table with UUIDs for ${table.name}\n`;
+          dataSQL += `DROP TABLE IF EXISTS ${table.name}_new;\n`;
+          dataSQL += `CREATE TABLE ${table.name}_new (\n`;
+          dataSQL += `  id TEXT PRIMARY KEY\n`;
+          dataSQL += `);\n`;
+          dataSQL += `INSERT INTO ${table.name}_new (id)\n`;
+          dataSQL += `SELECT lower(hex(randomblob(16))) AS id\n`;
+          dataSQL += `FROM ${table.name};\n\n`;
+        } else {
+          // Table has other columns, copy them
+          const colDefs = columns.join(',\n  ');
+          dataSQL += `-- Create temporary table with UUIDs for ${table.name}\n`;
+          dataSQL += `DROP TABLE IF EXISTS ${table.name}_new;\n`;
+          dataSQL += `CREATE TABLE ${table.name}_new (\n`;
+          dataSQL += `  id TEXT,\n  ${colDefs}\n`;
+          dataSQL += `);\n`;
+          dataSQL += `INSERT INTO ${table.name}_new (id, ${selectColumns})\n`;
+          dataSQL += `SELECT lower(hex(randomblob(16))) AS id, ${selectColumns}\n`;
+          dataSQL += `FROM ${table.name};\n\n`;
+        }
+      }
+    });
+
     // Generate main migration SQL
-    let mainSQL = `-- CRDT Migration SQL
+    let mainSQL = `-- CRDT Migration SQL (run AFTER data-migration.sql)
 -- Generated: ${timestamp}
 -- Database: ${analysis.databasePath || 'unknown.db'}
 -- Total tables: ${analysis.totalTables}
@@ -141,23 +230,34 @@ PRAGMA recursive_triggers = ON;
 
     // Add table creation scripts for CRDT-compatible schemas
     analysis.tables.forEach(table => {
+      const pkColumn = table.columns.find(col => col.primaryKey);
+      const hasUUIDPK = table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() === 'text';
+      
       mainSQL += `-- Table: ${table.name}\n`;
+      mainSQL += `DROP TABLE IF EXISTS ${table.name};\n`;
       mainSQL += `CREATE TABLE ${table.name} (\n`;
       
-      // Columns
-      table.columns.forEach((col, index) => {
-        if (index > 0) mainSQL += ',\n';
-        let colDef = `  ${col.name} ${col.type}`;
+      // Always use 'id' as TEXT PK for CRDT compatibility
+      mainSQL += `  id TEXT PRIMARY KEY`;
+      
+      // Add other columns (skip old PK column)
+      table.columns.forEach(col => {
+        if (col.primaryKey) return; // Skip the old PK column
+        
+        // FK columns should be TEXT in CRDT schemas
+        const isFK = table.foreignKeys.some(fk => fk.from === col.name);
+        
+        let colDef = `,\n  ${col.name} ${isFK ? 'TEXT' : col.type}`;
         
         // Add NOT NULL constraint
         if (col.notNull && col.name !== 'id') {
           colDef += ' NOT NULL';
         }
         
-        // Add DEFAULT values for certain columns
+        // Add DEFAULT values for nullable columns
         if (!col.notNull && col.name !== 'id' && col.type.toLowerCase() === 'text') {
           colDef += ' DEFAULT ""';
-        } else if (!col.notNull && col.type.toLowerCase() === 'integer') {
+        } else if (!col.notNull && col.name !== 'id' && col.type.toLowerCase() === 'integer') {
           colDef += ' DEFAULT 0';
         }
         
@@ -169,12 +269,14 @@ PRAGMA recursive_triggers = ON;
         mainSQL += colDef;
       });
       
-      // Add primary key constraint (UUID)
-      mainSQL += ',\n  PRIMARY KEY (id)';
-      
-      // Add foreign key constraints
+      // Add foreign key constraints (update references to new 'id' PK)
       table.foreignKeys.forEach(fk => {
-        mainSQL += `,\n  FOREIGN KEY (${fk.from}) REFERENCES ${fk.table}(${fk.to})`;
+        // If FK references a table that had its PK converted, reference 'id'
+        const refTable = analysis.tables.find(t => t.name === fk.table);
+        const refPK = refTable?.columns.find(c => c.primaryKey)?.name;
+        const targetCol = (refPK && refPK !== 'id') ? 'id' : fk.to;
+        const fromCol = fk.from;
+        mainSQL += `,\n  FOREIGN KEY (${fromCol}) REFERENCES ${fk.table}(${targetCol})`;
         if (fk.onDelete) mainSQL += ` ON DELETE ${fk.onDelete}`;
         if (fk.onUpdate) mainSQL += ` ON UPDATE ${fk.onUpdate}`;
       });
@@ -182,27 +284,12 @@ PRAGMA recursive_triggers = ON;
       mainSQL += '\n);\n\n';
     });
 
-    // Generate data migration scripts
-    let dataSQL = `-- CRDT Data Migration Script
--- Generated: ${timestamp}
-
--- Enable foreign key constraints
-PRAGMA foreign_keys = ON;
-
-`;
-
-    // Insert data conversion scripts
+    // Replace old tables with new CRDT-compatible tables
     analysis.tables.forEach(table => {
       if (table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() !== 'text') {
-        // Simple UUID generation
-        const insertSQL = `INSERT INTO ${table.name} (id, `;
-        const selectSQL = `SELECT `;
-        const columnSQL = '';
-        
-        dataSQL += `-- Convert ${table.name} data to UUID\n`;
-        dataSQL += insertSQL;
-        dataSQL += selectSQL;
-        dataSQL += ` FROM ${table.name};\n\n`;
+        mainSQL += `-- Replace ${table.name} with CRDT-compatible version\n`;
+        mainSQL += `DROP TABLE IF EXISTS ${table.name};\n`;
+        mainSQL += `ALTER TABLE ${table.name}_new RENAME TO ${table.name};\n\n`;
       }
     });
 
@@ -221,11 +308,22 @@ PRAGMA foreign_keys = ON;
   private async executeMigration(sqlFiles: string[], analysis: DatabaseAnalysis): Promise<void> {
     this.logger.info('Executing migration...');
 
-    // Read and execute the main migration SQL
-    const mainSQLFile = sqlFiles.find(f => f.includes('migration-'));
+    // Read and execute the data migration SQL FIRST (before schema changes)
+    const dataSQLFile = sqlFiles.find(f => f.includes('data-migration-'));
+    const needsUUIDConversion = analysis.tables.some(t => t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== 'text');
+    
+    if (dataSQLFile && needsUUIDConversion) {
+      const sql = await fs.readFile(dataSQLFile, 'utf-8');
+      await this.executeSQL(sql);
+      this.logger.info(`Executed data migration: ${path.basename(dataSQLFile)}`);
+    }
+
+    // Read and execute the main migration SQL (schema changes)
+    const mainSQLFile = sqlFiles.find(f => f.includes('migration-') && !f.includes('data-'));
     if (mainSQLFile) {
       const sql = await fs.readFile(mainSQLFile, 'utf-8');
       await this.executeSQL(sql);
+      this.logger.info(`Executed main migration: ${path.basename(mainSQLFile)}`);
     }
 
     this.logger.info('Migration executed successfully');
@@ -244,6 +342,11 @@ PRAGMA foreign_keys = ON;
     
     if (analysis.tables.length > 10) {
       warnings.push(`Large database with ${analysis.tables.length} tables may take longer to migrate`);
+    }
+    
+    const totalFKs = analysis.tables.reduce((sum, t) => sum + t.foreignKeys.length, 0);
+    if (totalFKs > 0) {
+      warnings.push(`Database has ${totalFKs} foreign key constraints that will need manual review after migration`);
     }
     
     analysis.tables.forEach(table => {

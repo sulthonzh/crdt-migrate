@@ -18,7 +18,7 @@ export class Logger {
   }
 
   error(message: string): void {
-    console.log(`\x1b[31m✗\x1b[0m ${message}`);
+    console.error(`\x1b[31m✗\x1b[0m ${message}`);
   }
 
   debug(message: string): void {

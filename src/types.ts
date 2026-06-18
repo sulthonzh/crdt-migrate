@@ -61,11 +61,12 @@ export interface DatabaseAnalysis {
 
 export interface MigrationOptions {
   outputDir: string;
-  databasePath: string;
+  databasePath?: string;
   dryRun: boolean;
   verbose: boolean;
   backup: boolean;
   preview?: boolean;
+  backupFile?: string;
 }
 
 export interface MigrationResult {

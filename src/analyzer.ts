@@ -1,5 +1,6 @@
 import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
+import fs from 'fs/promises';
 import { Logger } from './logger';
 import { DatabaseAnalysis, Issue, TableInfo, ColumnInfo } from './types';
 
@@ -11,8 +12,10 @@ export class DatabaseAnalyzer {
   private db: sqlite3.Database;
   private logger: Logger;
   private options: AnalyzerOptions;
+  private databasePath: string;
 
   constructor(databasePath: string, options: AnalyzerOptions = { verbose: false }) {
+    this.databasePath = databasePath;
     this.db = new sqlite3.Database(databasePath);
     this.logger = new Logger(options.verbose);
     this.options = options;
@@ -22,6 +25,12 @@ export class DatabaseAnalyzer {
     this.logger.info('Starting database analysis...');
 
     try {
+      // Verify the database file exists
+      try {
+        await fs.access(this.databasePath);
+      } catch {
+        throw new Error(`Database file not found: ${this.databasePath}`);
+      }
       const tables = await this.getTables();
       const issues: Issue[] = [];
       const tableInfos: TableInfo[] = [];
@@ -35,7 +44,7 @@ export class DatabaseAnalyzer {
       const needsMigration = issues.length > 0;
 
       const analysis: DatabaseAnalysis = {
-        databasePath: this.db.filename || 'unknown.db',
+        databasePath: this.databasePath,
         totalTables: tables.length,
         needsMigration,
         issues,

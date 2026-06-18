@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -29,7 +28,7 @@ var import_commander = require("commander");
 // src/migrator.ts
 var import_sqlite32 = __toESM(require("sqlite3"));
 var import_util2 = require("util");
-var import_promises = __toESM(require("fs/promises"));
+var import_promises2 = __toESM(require("fs/promises"));
 var import_path = __toESM(require("path"));
 
 // src/logger.ts
@@ -48,7 +47,7 @@ var Logger = class {
     console.log(`\x1B[33m\u26A0\x1B[0m ${message}`);
   }
   error(message) {
-    console.log(`\x1B[31m\u2717\x1B[0m ${message}`);
+    console.error(`\x1B[31m\u2717\x1B[0m ${message}`);
   }
   debug(message) {
     if (this.verbose) {
@@ -65,11 +64,14 @@ var Logger = class {
 // src/analyzer.ts
 var import_sqlite3 = __toESM(require("sqlite3"));
 var import_util = require("util");
+var import_promises = __toESM(require("fs/promises"));
 var DatabaseAnalyzer = class {
   db;
   logger;
   options;
+  databasePath;
   constructor(databasePath, options = { verbose: false }) {
+    this.databasePath = databasePath;
     this.db = new import_sqlite3.default.Database(databasePath);
     this.logger = new Logger(options.verbose);
     this.options = options;
@@ -77,6 +79,11 @@ var DatabaseAnalyzer = class {
   async analyze() {
     this.logger.info("Starting database analysis...");
     try {
+      try {
+        await import_promises.default.access(this.databasePath);
+      } catch {
+        throw new Error(`Database file not found: ${this.databasePath}`);
+      }
       const tables = await this.getTables();
       const issues = [];
       const tableInfos = [];
@@ -87,7 +94,7 @@ var DatabaseAnalyzer = class {
       }
       const needsMigration = issues.length > 0;
       const analysis = {
-        databasePath: this.db.filename || "unknown.db",
+        databasePath: this.databasePath,
         totalTables: tables.length,
         needsMigration,
         issues,
@@ -253,6 +260,18 @@ var CRDTMigrator = class {
     this.logger.info("Starting CRDT migration...");
     try {
       const analysis = await this.analyzer.analyze();
+      if (!analysis.needsMigration) {
+        this.logger.info("Database is already CRDT compatible");
+        return {
+          success: true,
+          message: "Database is already CRDT compatible",
+          backupFile: void 0,
+          sqlFiles: [],
+          tablesMigrated: 0,
+          issuesResolved: 0,
+          warnings: this.generateWarnings(analysis)
+        };
+      }
       let backupFile;
       if (this.options.backup) {
         backupFile = await this.createBackup();
@@ -294,16 +313,29 @@ var CRDTMigrator = class {
     try {
       const analysis = await this.analyzer.analyze();
       const sqlFiles = await this.generateMigrationSQL(analysis);
+      const tablesToMigrate = analysis.tables.filter(
+        (t) => t.hasAutoIncrement || t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== "text"
+      ).length;
+      const primaryKeysToConvert = analysis.tables.filter(
+        (t) => t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== "text"
+      ).length;
+      const foreignKeysToUpdate = analysis.tables.reduce(
+        (sum, t) => sum + t.foreignKeys.length,
+        0
+      );
+      const columnsToModify = analysis.tables.reduce(
+        (sum, t) => sum + t.nullableColumns.length,
+        0
+      );
       return {
-        databasePath: analysis.databasePath,
-        totalTables: analysis.totalTables,
-        needsMigration: analysis.needsMigration,
-        issues: analysis.issues,
-        tables: analysis.tables,
-        summary: analysis.summary,
-        sqlFiles: sqlFiles.slice(0, 2),
-        // Show first 2 SQL files for preview
-        estimatedTime: this.estimateMigrationTime(analysis),
+        sqlFiles,
+        summary: {
+          tablesToMigrate,
+          primaryKeysToConvert,
+          foreignKeysToUpdate,
+          columnsToModify,
+          estimatedTime: this.estimateMigrationTime(analysis)
+        },
         warnings: this.generateWarnings(analysis)
       };
     } catch (error) {
@@ -315,18 +347,85 @@ var CRDTMigrator = class {
       this.options.outputDir,
       `backup-${Date.now()}.db`
     );
-    await import_promises.default.mkdir(import_path.default.dirname(backupPath), { recursive: true });
+    await import_promises2.default.mkdir(import_path.default.dirname(backupPath), { recursive: true });
     const dbPath = this.options.backupFile || this.options.databasePath || import_path.default.join(this.options.outputDir, "test-database.db");
-    await import_promises.default.copyFile(dbPath, backupPath);
+    await import_promises2.default.copyFile(dbPath, backupPath);
     return backupPath;
   }
   async generateMigrationSQL(analysis) {
     this.logger.info("Generating migration SQL files...");
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     const outputDir = this.options.outputDir;
-    await import_promises.default.mkdir(outputDir, { recursive: true });
+    await import_promises2.default.mkdir(outputDir, { recursive: true });
     const sqlFiles = [];
-    let mainSQL = `-- CRDT Migration SQL
+    let dataSQL = `-- CRDT Data Migration Script (run BEFORE migration.sql)
+-- Generated: ${timestamp}
+
+-- Enable foreign key constraints
+PRAGMA foreign_keys = OFF;
+
+-- Disable triggers during migration
+PRAGMA recursive_triggers = OFF;
+
+`;
+    analysis.tables.forEach((table) => {
+      if (table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() !== "text") {
+        const pkColumn = table.columns.find((col) => col.primaryKey);
+        if (!pkColumn)
+          return;
+        const columns = table.columns.filter((c) => !c.primaryKey).map((col) => {
+          const fk = table.foreignKeys.find((f) => f.from === col.name);
+          if (fk) {
+            const refTable = analysis.tables.find((t) => t.name === fk.table);
+            if (refTable && refTable.primaryKeyType?.toLowerCase() !== "text") {
+              return `${col.name} TEXT`;
+            }
+          }
+          return col.name;
+        });
+        const selectColumns = table.columns.filter((c) => !c.primaryKey).map((c) => c.name).join(", ");
+        if (columns.length === 0) {
+          dataSQL += `-- Create temporary table with UUIDs for ${table.name}
+`;
+          dataSQL += `DROP TABLE IF EXISTS ${table.name}_new;
+`;
+          dataSQL += `CREATE TABLE ${table.name}_new (
+`;
+          dataSQL += `  id TEXT PRIMARY KEY
+`;
+          dataSQL += `);
+`;
+          dataSQL += `INSERT INTO ${table.name}_new (id)
+`;
+          dataSQL += `SELECT lower(hex(randomblob(16))) AS id
+`;
+          dataSQL += `FROM ${table.name};
+
+`;
+        } else {
+          const colDefs = columns.join(",\n  ");
+          dataSQL += `-- Create temporary table with UUIDs for ${table.name}
+`;
+          dataSQL += `DROP TABLE IF EXISTS ${table.name}_new;
+`;
+          dataSQL += `CREATE TABLE ${table.name}_new (
+`;
+          dataSQL += `  id TEXT,
+  ${colDefs}
+`;
+          dataSQL += `);
+`;
+          dataSQL += `INSERT INTO ${table.name}_new (id, ${selectColumns})
+`;
+          dataSQL += `SELECT lower(hex(randomblob(16))) AS id, ${selectColumns}
+`;
+          dataSQL += `FROM ${table.name};
+
+`;
+        }
+      }
+    });
+    let mainSQL = `-- CRDT Migration SQL (run AFTER data-migration.sql)
 -- Generated: ${timestamp}
 -- Database: ${analysis.databasePath || "unknown.db"}
 -- Total tables: ${analysis.totalTables}
@@ -340,20 +439,27 @@ PRAGMA recursive_triggers = ON;
 
 `;
     analysis.tables.forEach((table) => {
+      const pkColumn = table.columns.find((col) => col.primaryKey);
+      const hasUUIDPK = table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() === "text";
       mainSQL += `-- Table: ${table.name}
+`;
+      mainSQL += `DROP TABLE IF EXISTS ${table.name};
 `;
       mainSQL += `CREATE TABLE ${table.name} (
 `;
-      table.columns.forEach((col, index) => {
-        if (index > 0)
-          mainSQL += ",\n";
-        let colDef = `  ${col.name} ${col.type}`;
+      mainSQL += `  id TEXT PRIMARY KEY`;
+      table.columns.forEach((col) => {
+        if (col.primaryKey)
+          return;
+        const isFK = table.foreignKeys.some((fk) => fk.from === col.name);
+        let colDef = `,
+  ${col.name} ${isFK ? "TEXT" : col.type}`;
         if (col.notNull && col.name !== "id") {
           colDef += " NOT NULL";
         }
         if (!col.notNull && col.name !== "id" && col.type.toLowerCase() === "text") {
           colDef += ' DEFAULT ""';
-        } else if (!col.notNull && col.type.toLowerCase() === "integer") {
+        } else if (!col.notNull && col.name !== "id" && col.type.toLowerCase() === "integer") {
           colDef += " DEFAULT 0";
         }
         if (col.unique && col.name !== "id") {
@@ -361,10 +467,13 @@ PRAGMA recursive_triggers = ON;
         }
         mainSQL += colDef;
       });
-      mainSQL += ",\n  PRIMARY KEY (id)";
       table.foreignKeys.forEach((fk) => {
+        const refTable = analysis.tables.find((t) => t.name === fk.table);
+        const refPK = refTable?.columns.find((c) => c.primaryKey)?.name;
+        const targetCol = refPK && refPK !== "id" ? "id" : fk.to;
+        const fromCol = fk.from;
         mainSQL += `,
-  FOREIGN KEY (${fk.from}) REFERENCES ${fk.table}(${fk.to})`;
+  FOREIGN KEY (${fromCol}) REFERENCES ${fk.table}(${targetCol})`;
         if (fk.onDelete)
           mainSQL += ` ON DELETE ${fk.onDelete}`;
         if (fk.onUpdate)
@@ -372,40 +481,38 @@ PRAGMA recursive_triggers = ON;
       });
       mainSQL += "\n);\n\n";
     });
-    let dataSQL = `-- CRDT Data Migration Script
--- Generated: ${timestamp}
-
--- Enable foreign key constraints
-PRAGMA foreign_keys = ON;
-
-`;
     analysis.tables.forEach((table) => {
       if (table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() !== "text") {
-        const insertSQL = `INSERT INTO ${table.name} (id, `;
-        const selectSQL = `SELECT `;
-        const columnSQL = "";
-        dataSQL += `-- Convert ${table.name} data to UUID
+        mainSQL += `-- Replace ${table.name} with CRDT-compatible version
 `;
-        dataSQL += insertSQL;
-        dataSQL += selectSQL;
-        dataSQL += ` FROM ${table.name};
+        mainSQL += `DROP TABLE IF EXISTS ${table.name};
+`;
+        mainSQL += `ALTER TABLE ${table.name}_new RENAME TO ${table.name};
 
 `;
       }
     });
     const mainSQLFile = import_path.default.join(outputDir, `migration-${timestamp}.sql`);
     const dataSQLFile = import_path.default.join(outputDir, `data-migration-${timestamp}.sql`);
-    await import_promises.default.writeFile(mainSQLFile, mainSQL);
-    await import_promises.default.writeFile(dataSQLFile, dataSQL);
+    await import_promises2.default.writeFile(mainSQLFile, mainSQL);
+    await import_promises2.default.writeFile(dataSQLFile, dataSQL);
     sqlFiles.push(mainSQLFile, dataSQLFile);
     return sqlFiles;
   }
   async executeMigration(sqlFiles, analysis) {
     this.logger.info("Executing migration...");
-    const mainSQLFile = sqlFiles.find((f) => f.includes("migration-"));
-    if (mainSQLFile) {
-      const sql = await import_promises.default.readFile(mainSQLFile, "utf-8");
+    const dataSQLFile = sqlFiles.find((f) => f.includes("data-migration-"));
+    const needsUUIDConversion = analysis.tables.some((t) => t.hasPrimaryKey && t.primaryKeyType?.toLowerCase() !== "text");
+    if (dataSQLFile && needsUUIDConversion) {
+      const sql = await import_promises2.default.readFile(dataSQLFile, "utf-8");
       await this.executeSQL(sql);
+      this.logger.info(`Executed data migration: ${import_path.default.basename(dataSQLFile)}`);
+    }
+    const mainSQLFile = sqlFiles.find((f) => f.includes("migration-") && !f.includes("data-"));
+    if (mainSQLFile) {
+      const sql = await import_promises2.default.readFile(mainSQLFile, "utf-8");
+      await this.executeSQL(sql);
+      this.logger.info(`Executed main migration: ${import_path.default.basename(mainSQLFile)}`);
     }
     this.logger.info("Migration executed successfully");
   }
@@ -420,6 +527,10 @@ PRAGMA foreign_keys = ON;
     if (analysis.tables.length > 10) {
       warnings.push(`Large database with ${analysis.tables.length} tables may take longer to migrate`);
     }
+    const totalFKs = analysis.tables.reduce((sum, t) => sum + t.foreignKeys.length, 0);
+    if (totalFKs > 0) {
+      warnings.push(`Database has ${totalFKs} foreign key constraints that will need manual review after migration`);
+    }
     analysis.tables.forEach((table) => {
       if (table.foreignKeys.length > 5) {
         warnings.push(`Table ${table.name} has many foreign key constraints - migration may be complex`);
@@ -433,11 +544,27 @@ PRAGMA foreign_keys = ON;
 };
 
 // src/index.ts
+var import_promises3 = __toESM(require("fs/promises"));
+var import_process = __toESM(require("process"));
 var program = new import_commander.Command();
 var logger = new Logger();
 program.name("crdt-migrate").description("CLI tool for migrating SQLite databases to CRDT-compatible schemas").version("1.0.0");
+async function checkDatabaseExists(databasePath) {
+  try {
+    const stats = await import_promises3.default.stat(databasePath);
+    if (stats.size === 0) {
+      throw new Error(`Database file is empty (not a valid SQLite database): ${databasePath}`);
+    }
+  } catch {
+    throw new Error(`Database file not found: ${databasePath}`);
+  }
+}
+function flushOutputAndExit(code) {
+  import_process.default.exit(code);
+}
 program.command("analyze").description("Analyze a database for CRDT compatibility").argument("<database>", "Path to the SQLite database file").option("--verbose", "Verbose output").action(async (database, options) => {
   try {
+    await checkDatabaseExists(database);
     logger.info(`Analyzing database: ${database}`);
     const analyzer = new DatabaseAnalyzer(database, {
       verbose: options.verbose
@@ -458,11 +585,12 @@ program.command("analyze").description("Analyze a database for CRDT compatibilit
     }
   } catch (error) {
     logger.error(`Analysis failed: ${error}`);
-    process.exit(1);
+    flushOutputAndExit(1);
   }
 });
-program.command("migrate").description("Migrate a database to CRDT-compatible schema").argument("<database>", "Path to the SQLite database file").option("--output", "Output directory for migration files", "./migration").option("--dry-run", "Perform a dry run without making changes").option("--verbose", "Verbose output").option("--backup", "Create a backup of the original database").action(async (database, options) => {
+program.command("migrate").description("Migrate a database to CRDT-compatible schema").argument("<database>", "Path to the SQLite database file").option("--output <dir>", "Output directory for migration files", "./migration").option("--dry-run", "Perform a dry run without making changes").option("--verbose", "Verbose output").option("--backup", "Create a backup of the original database").action(async (database, options) => {
   try {
+    await checkDatabaseExists(database);
     logger.info(`Starting migration for: ${database}`);
     const migrator = new CRDTMigrator(database, {
       outputDir: options.output,
@@ -477,15 +605,16 @@ program.command("migrate").description("Migrate a database to CRDT-compatible sc
       logger.success("Migration successful!");
     } else {
       logger.error("Migration failed!");
-      process.exit(1);
+      flushOutputAndExit(1);
     }
   } catch (error) {
     logger.error(`Migration failed: ${error}`);
-    process.exit(1);
+    flushOutputAndExit(1);
   }
 });
-program.command("preview").description("Preview the migration changes without executing them").argument("<database>", "Path to the SQLite database file").option("--output", "Output directory for preview files", "./preview").option("--verbose", "Verbose output").action(async (database, options) => {
+program.command("preview").description("Preview the migration changes without executing them").argument("<database>", "Path to the SQLite database file").option("--output <dir>", "Output directory for preview files", "./preview").option("--verbose", "Verbose output").action(async (database, options) => {
   try {
+    await checkDatabaseExists(database);
     logger.info(`Generating preview for: ${database}`);
     const migrator = new CRDTMigrator(database, {
       outputDir: options.output,
@@ -503,7 +632,7 @@ program.command("preview").description("Preview the migration changes without ex
     });
   } catch (error) {
     logger.error(`Preview generation failed: ${error}`);
-    process.exit(1);
+    flushOutputAndExit(1);
   }
 });
 program.parse();

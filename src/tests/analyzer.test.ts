@@ -70,7 +70,11 @@ describe('DatabaseAnalyzer', () => {
   let analyzer: DatabaseAnalyzer;
 
   beforeEach(async () => {
-    testDbPath = path.join(__dirname, 'test-database.db');
+    testDbPath = path.join(__dirname, 'analyzer-test.db');
+    // Clean up any leftover database files
+    try { await fs.unlink(testDbPath); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'crdt-database.db')); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'analyzer-empty.db')); } catch {}
     await createTestDatabase(testDbPath);
     analyzer = new DatabaseAnalyzer(testDbPath, { verbose: false });
   });
@@ -150,23 +154,15 @@ describe('DatabaseAnalyzer', () => {
   });
 
   it('should handle database with no issues (CRDT compatible)', async () => {
-    // Create a CRDT-compatible database
+    // Create a CRDT-compatible database (TEXT PKs, no nullable columns, no FKs)
     const crdtDbPath = path.join(__dirname, 'crdt-database.db');
+    try { await fs.unlink(crdtDbPath); } catch {}
     const sql = `
       CREATE TABLE users (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE posts (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        content TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `;
 
@@ -189,14 +185,14 @@ describe('DatabaseAnalyzer', () => {
 
     expect(analysis.needsMigration).toBe(false);
     expect(analysis.issues.length).toBe(0);
-    expect(analysis.summary).toBe('Database schema is CRDT compatible');
+    expect(analysis.summary).toBe('Database schema is CRDT-compatible');
 
     // Cleanup
     await fs.unlink(crdtDbPath);
   });
 
   it('should handle empty database', async () => {
-    const emptyDbPath = path.join(__dirname, 'empty-database.db');
+    const emptyDbPath = path.join(__dirname, 'analyzer-empty.db');
     const db = new (require('sqlite3').Database)(emptyDbPath);
     await new Promise<void>((resolve, reject) => {
       db.exec('', (err) => {

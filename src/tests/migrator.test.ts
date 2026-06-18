@@ -56,8 +56,15 @@ describe('CRDTMigrator', () => {
   let migrator: CRDTMigrator;
 
   beforeEach(async () => {
-    testDbPath = path.join(__dirname, 'test-database.db');
+    testDbPath = path.join(__dirname, 'migrator-test.db');
     outputDir = path.join(__dirname, 'output');
+    
+    // Clean up any leftover files
+    try { await fs.unlink(testDbPath); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'migrator-crdt.db')); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'migrator-complex.db')); } catch {}
+    try { await fs.unlink(path.join(__dirname, 'migrator-empty.db')); } catch {}
+    try { await fs.rm(outputDir, { recursive: true, force: true }); } catch {}
     
     await fs.mkdir(outputDir, { recursive: true });
     await createTestDatabase(testDbPath);
@@ -83,7 +90,7 @@ describe('CRDTMigrator', () => {
   it('should generate migration preview', async () => {
     const preview = await migrator.preview();
 
-    expect(preview.sqlFiles).toHaveLength(0); // No files generated in dry run mode
+    expect(preview.sqlFiles.length).toBeGreaterThan(0); // SQL files generated for preview
     expect(preview.summary.tablesToMigrate).toBe(2); // users and posts tables
     expect(preview.summary.primaryKeysToConvert).toBe(2);
     expect(preview.summary.foreignKeysToUpdate).toBe(1);
@@ -122,7 +129,7 @@ describe('CRDTMigrator', () => {
     const result = await migratorWithBackup.migrate();
 
     expect(result.backupFile).toBeDefined();
-    expect(await fs.pathExists(result.backupFile!)).toBe(true);
+    await fs.access(result.backupFile!); // Throws if doesn't exist
 
     // Cleanup
     await fs.rm(backupDir, { recursive: true, force: true });
@@ -130,7 +137,8 @@ describe('CRDTMigrator', () => {
 
   it('should handle database that is already CRDT compatible', async () => {
     // Create a CRDT-compatible database
-    const crdtDbPath = path.join(__dirname, 'crdt-database.db');
+    const crdtDbPath = path.join(__dirname, 'migrator-crdt.db');
+    try { await fs.unlink(crdtDbPath); } catch {}
     const crdtSql = `
       CREATE TABLE users (
         id TEXT PRIMARY KEY,
@@ -176,7 +184,8 @@ describe('CRDTMigrator', () => {
   });
 
   it('should handle empty database', async () => {
-    const emptyDbPath = path.join(__dirname, 'empty-database.db');
+    const emptyDbPath = path.join(__dirname, 'migrator-empty.db');
+    try { await fs.unlink(emptyDbPath); } catch {}
     const db = new (require('sqlite3').Database)(emptyDbPath);
     await new Promise<void>((resolve, reject) => {
       db.close((err) => {
@@ -204,7 +213,8 @@ describe('CRDTMigrator', () => {
 
   it('should generate warnings for complex schemas', async () => {
     // Create a database with complex foreign key relationships
-    const complexDbPath = path.join(__dirname, 'complex-database.db');
+    const complexDbPath = path.join(__dirname, 'migrator-complex.db');
+    try { await fs.unlink(complexDbPath); } catch {}
     const complexSql = `
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,14 +224,17 @@ describe('CRDTMigrator', () => {
       CREATE TABLE posts (
         post_id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
-        title TEXT NOT NULL
+        title TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
 
       CREATE TABLE comments (
         comment_id INTEGER PRIMARY KEY AUTOINCREMENT,
         post_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        comment TEXT
+        comment TEXT,
+        FOREIGN KEY (post_id) REFERENCES posts(post_id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
       );
 
       CREATE TABLE tags (
@@ -232,13 +245,15 @@ describe('CRDTMigrator', () => {
       CREATE TABLE post_tags (
         post_id INTEGER NOT NULL,
         tag_id INTEGER NOT NULL,
-        PRIMARY KEY (post_id, tag_id)
+        PRIMARY KEY (post_id, tag_id),
+        FOREIGN KEY (post_id) REFERENCES posts(post_id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
       );
 
       INSERT INTO users (name) VALUES ('John'), ('Jane');
       INSERT INTO posts (user_id, title) VALUES (1, 'First'), (2, 'Second');
       INSERT INTO comments (post_id, user_id, comment) VALUES (1, 1, 'Good');
-      INSERT INTO tags (name) VALUES ('tech', 'news');
+      INSERT INTO tags (name) VALUES ('tech'), ('news');
       INSERT INTO post_tags (post_id, tag_id) VALUES (1, 1), (2, 2);
     `;
 
