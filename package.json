@@ -41,6 +41,19 @@
     "vitest": "^0.34.0"
   },
   "files": [
-    "dist"
-  ]
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sulthonzh/crdt-migrate"
+  },
+  "homepage": "https://github.com/sulthonzh/crdt-migrate#readme",
+  "bugs": {
+    "url": "https://github.com/sulthonzh/crdt-migrate/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
