@@ -1,6 +1,6 @@
 # crdt-migrate
 
-CLI tool for migrating SQLite databases to CRDT-compatible schemas.
+**Migrate SQLite databases to CRDT-compatible schemas automatically.** Convert auto-increment primary keys to UUIDs, fix foreign key chains, add defaults — all while preserving your data. Zero manual schema rewriting.
 
 ## 🎯 The Problem
 

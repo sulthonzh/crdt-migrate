@@ -8,18 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-06-18
 
 ### Added
-- CLI tool for analyzing SQLite databases for CRDT compatibility
-- `analyze` command — identifies auto-increment PKs, non-TEXT PKs, nullable columns without defaults, and foreign key constraints
-- `migrate` command — generates and executes migration SQL to convert schemas to CRDT-compatible format (UUID TEXT primary keys)
-- `preview` command — dry-run preview of migration changes without executing them
-- Backup support (`--backup` flag) for safe migrations
-- Data migration scripts that run before schema changes to preserve referential integrity
-- Support for composite primary keys and complex foreign key relationships
-- Verbose output mode (`--verbose` flag)
-
-### Technical Details
-- TypeScript strict mode with `exactOptionalPropertyTypes` enabled
-- 17 tests across 3 test suites (analyzer, migrator, CLI)
+- `analyze` command — scans SQLite databases for CRDT compatibility issues
+- `migrate` command — automatically converts schemas to CRDT-compatible format
+- `preview` command — generates migration SQL without executing changes
+- Primary key conversion (INTEGER AUTOINCREMENT → TEXT UUID)
+- Foreign key chain updates with UUID references
+- Default value generation for NOT NULL columns
+- Dry run mode for safe testing
+- Backup support with timestamped copies
+- Verbose output mode for debugging
+- 17 tests (6 analyzer, 6 migrator, 5 CLI) — 100% pass rate
 - 96.22% statement coverage, 86.4% branch coverage
-- Dependencies: commander (CLI), sqlite3 (database)
-- Dev dependencies: vitest, tsup, typescript, eslint
+
+### Dependencies
+- `commander` — CLI framework
+- `sqlite3` — SQLite database driver
+
+[1.0.0]: https://github.com/sulthonzh/crdt-migrate/releases/tag/v1.0.0
