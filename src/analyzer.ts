@@ -11,14 +11,12 @@ export interface AnalyzerOptions {
 export class DatabaseAnalyzer {
   private db: sqlite3.Database;
   private logger: Logger;
-  private options: AnalyzerOptions;
   private databasePath: string;
 
   constructor(databasePath: string, options: AnalyzerOptions = { verbose: false }) {
     this.databasePath = databasePath;
     this.db = new sqlite3.Database(databasePath);
     this.logger = new Logger(options.verbose);
-    this.options = options;
   }
 
   async analyze(): Promise<DatabaseAnalysis> {
@@ -154,7 +152,7 @@ export class DatabaseAnalyzer {
       constraints,
       foreignKeys,
       hasPrimaryKey,
-      primaryKeyType: primaryKey?.type,
+      primaryKeyType: primaryKey?.type ?? null,
       hasAutoIncrement,
       nullableColumns: nullableWithoutDefault.map(col => col.name),
       issues
@@ -169,7 +167,7 @@ export class DatabaseAnalyzer {
       name: row.name as string,
       type: row.type as string,
       notNull: !!row.notnull,
-      defaultValue: row.dflt_value,
+      defaultValue: (row.dflt_value as string | null) ?? null,
       primaryKey: !!row.pk,
       autoIncrement: row.pk && row.type.toLowerCase().includes('integer') ? true : false
     }));
@@ -206,8 +204,8 @@ export class DatabaseAnalyzer {
     return `Migration required. Issues: ${Object.entries(byType).map(([type, count]) => `${count} ${type}`).join(', ')}`;
   }
 
-  private all(sql: string): Promise<any[]> {
-    return promisify(this.db.all).bind(this.db)(sql);
+  private async all(sql: string): Promise<any[]> {
+    return promisify(this.db.all).bind(this.db)(sql) as Promise<any[]>;
   }
 
   private close(): Promise<void> {

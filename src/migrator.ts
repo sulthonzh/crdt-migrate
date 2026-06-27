@@ -39,7 +39,6 @@ export class CRDTMigrator {
         return {
           success: true,
           message: 'Database is already CRDT compatible',
-          backupFile: undefined,
           sqlFiles: [],
           tablesMigrated: 0,
           issuesResolved: 0,
@@ -63,7 +62,7 @@ export class CRDTMigrator {
         return {
           success: true,
           message: 'Dry run completed successfully',
-          backupFile: backupFile || undefined,
+          ...(backupFile !== undefined && { backupFile }),
           sqlFiles: this.options.dryRun ? [] : sqlFiles,
           tablesMigrated: analysis.tables.length,
           issuesResolved: analysis.issues.length,
@@ -78,7 +77,7 @@ export class CRDTMigrator {
       return {
         success: true,
         message: 'Migration completed successfully',
-        backupFile: backupFile || undefined,
+        ...(backupFile !== undefined && { backupFile }),
         sqlFiles,
         tablesMigrated: analysis.tables.length,
         issuesResolved: analysis.issues.length,
@@ -230,9 +229,6 @@ PRAGMA recursive_triggers = ON;
 
     // Add table creation scripts for CRDT-compatible schemas
     analysis.tables.forEach(table => {
-      const pkColumn = table.columns.find(col => col.primaryKey);
-      const hasUUIDPK = table.hasPrimaryKey && table.primaryKeyType?.toLowerCase() === 'text';
-      
       mainSQL += `-- Table: ${table.name}\n`;
       mainSQL += `DROP TABLE IF EXISTS ${table.name};\n`;
       mainSQL += `CREATE TABLE ${table.name} (\n`;

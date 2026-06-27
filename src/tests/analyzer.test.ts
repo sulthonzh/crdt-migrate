@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { DatabaseAnalyzer, AnalyzerOptions } from '../analyzer';
-import { DatabaseAnalysis } from '../types';
+import { DatabaseAnalyzer } from '../analyzer';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -52,13 +51,13 @@ async function createTestDatabase(dbPath: string): Promise<void> {
   // Create a temporary database file
   const db = new (require('sqlite3').Database)(dbPath);
   await new Promise<void>((resolve, reject) => {
-    db.exec(sql, (err) => {
+    db.exec(sql, (err: Error | null) => {
       if (err) reject(err);
       else resolve();
     });
   });
   await new Promise<void>((resolve, reject) => {
-    db.close((err) => {
+    db.close((err: Error | null) => {
       if (err) reject(err);
       else resolve();
     });
@@ -134,12 +133,12 @@ describe('DatabaseAnalyzer', () => {
     const usersTable = analysis.tables.find(t => t.name === 'users');
     
     expect(usersTable).toBeDefined();
-    expect(usersTable.hasPrimaryKey).toBe(true);
-    expect(usersTable.primaryKeyType).toBe('INTEGER');
-    expect(usersTable.hasAutoIncrement).toBe(true);
-    expect(usersTable.nullableColumns).toContain('age');
-    expect(usersTable.foreignKeys).toEqual([]);
-    expect(usersTable.issues.length).toBeGreaterThan(0);
+    expect(usersTable!.hasPrimaryKey).toBe(true);
+    expect(usersTable!.primaryKeyType).toBe('INTEGER');
+    expect(usersTable!.hasAutoIncrement).toBe(true);
+    expect(usersTable!.nullableColumns).toContain('age');
+    expect(usersTable!.foreignKeys).toEqual([]);
+    expect(usersTable!.issues.length).toBeGreaterThan(0);
   });
 
   it('should analyze foreign key constraints correctly', async () => {
@@ -147,10 +146,10 @@ describe('DatabaseAnalyzer', () => {
     const postsTable = analysis.tables.find(t => t.name === 'posts');
     
     expect(postsTable).toBeDefined();
-    expect(postsTable.foreignKeys.length).toBe(1);
-    expect(postsTable.foreignKeys[0].from).toBe('user_id');
-    expect(postsTable.foreignKeys[0].table).toBe('users');
-    expect(postsTable.foreignKeys[0].to).toBe('id');
+    expect(postsTable!.foreignKeys.length).toBe(1);
+    expect(postsTable!.foreignKeys[0].from).toBe('user_id');
+    expect(postsTable!.foreignKeys[0].table).toBe('users');
+    expect(postsTable!.foreignKeys[0].to).toBe('id');
   });
 
   it('should handle database with no issues (CRDT compatible)', async () => {
@@ -168,13 +167,13 @@ describe('DatabaseAnalyzer', () => {
 
     const db = new (require('sqlite3').Database)(crdtDbPath);
     await new Promise<void>((resolve, reject) => {
-      db.exec(sql, (err) => {
+      db.exec(sql, (err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
     });
     await new Promise<void>((resolve, reject) => {
-      db.close((err) => {
+      db.close((err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
@@ -195,13 +194,13 @@ describe('DatabaseAnalyzer', () => {
     const emptyDbPath = path.join(__dirname, 'analyzer-empty.db');
     const db = new (require('sqlite3').Database)(emptyDbPath);
     await new Promise<void>((resolve, reject) => {
-      db.exec('', (err) => {
+      db.exec('', (err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
     });
     await new Promise<void>((resolve, reject) => {
-      db.close((err) => {
+      db.close((err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });

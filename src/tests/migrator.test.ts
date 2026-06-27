@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CRDTMigrator } from '../migrator';
-import { DatabaseAnalyzer } from '../analyzer';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -37,13 +36,13 @@ async function createTestDatabase(dbPath: string): Promise<void> {
 
   const db = new (require('sqlite3').Database)(dbPath);
   await new Promise<void>((resolve, reject) => {
-    db.exec(sql, (err) => {
+    db.exec(sql, (err: Error | null) => {
       if (err) reject(err);
       else resolve();
     });
   });
   await new Promise<void>((resolve, reject) => {
-    db.close((err) => {
+    db.close((err: Error | null) => {
       if (err) reject(err);
       else resolve();
     });
@@ -153,13 +152,13 @@ describe('CRDTMigrator', () => {
 
     const db = new (require('sqlite3').Database)(crdtDbPath);
     await new Promise<void>((resolve, reject) => {
-      db.exec(crdtSql, (err) => {
+      db.exec(crdtSql, (err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
     });
     await new Promise<void>((resolve, reject) => {
-      db.close((err) => {
+      db.close((err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
@@ -188,7 +187,7 @@ describe('CRDTMigrator', () => {
     try { await fs.unlink(emptyDbPath); } catch {}
     const db = new (require('sqlite3').Database)(emptyDbPath);
     await new Promise<void>((resolve, reject) => {
-      db.close((err) => {
+      db.close((err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
@@ -259,13 +258,13 @@ describe('CRDTMigrator', () => {
 
     const db = new (require('sqlite3').Database)(complexDbPath);
     await new Promise<void>((resolve, reject) => {
-      db.exec(complexSql, (err) => {
+      db.exec(complexSql, (err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });
     });
     await new Promise<void>((resolve, reject) => {
-      db.close((err) => {
+      db.close((err: Error | null) => {
         if (err) reject(err);
         else resolve();
       });

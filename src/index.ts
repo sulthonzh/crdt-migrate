@@ -3,15 +3,10 @@ import { CRDTMigrator } from './migrator';
 import { DatabaseAnalyzer } from './analyzer';
 import { Logger } from './logger';
 import fs from 'fs/promises';
-import path from 'path';
 import process from 'process';
 
 const program = new Command();
 const logger = new Logger();
-
-// Ensure synchronous output for tests
-const consoleLog = console.log;
-const consoleError = console.error;
 
 program
   .name('crdt-migrate')
