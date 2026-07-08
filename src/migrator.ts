@@ -139,7 +139,7 @@ export class CRDTMigrator {
     );
     
     await fs.mkdir(path.dirname(backupPath), { recursive: true });
-    const dbPath = this.options.backupFile || this.options.databasePath || path.join(this.options.outputDir, 'test-database.db');
+    const dbPath = this.options.databasePath!;
     await fs.copyFile(dbPath, backupPath);
     
     return backupPath;
@@ -354,7 +354,13 @@ PRAGMA recursive_triggers = ON;
     return warnings;
   }
 
-  private estimateMigrationTime(_analysis: DatabaseAnalysis): string {
-    return '1-2 minutes';
+  private estimateMigrationTime(analysis: DatabaseAnalysis): string {
+    const totalColumns = analysis.tables.reduce((sum, t) => sum + t.columns.length, 0);
+    const totalFKs = analysis.tables.reduce((sum, t) => sum + t.foreignKeys.length, 0);
+    const complexity = analysis.totalTables + totalColumns + totalFKs * 2;
+    if (complexity < 20) return '< 1 minute';
+    if (complexity < 100) return '1-2 minutes';
+    if (complexity < 500) return '5-10 minutes';
+    return '10+ minutes';
   }
 }

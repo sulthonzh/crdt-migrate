@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import { Logger } from './logger';
-import { DatabaseAnalysis, Issue, TableInfo, ColumnInfo } from './types';
+import { DatabaseAnalysis, Issue, TableInfo, ColumnInfo, ConstraintInfo, ForeignKeyInfo } from './types';
 
 export interface AnalyzerOptions {
   verbose: boolean;
@@ -163,23 +163,43 @@ export class DatabaseAnalyzer {
     const sql = `PRAGMA table_info(${tableName})`;
     const rows = await this.all(sql);
     
+    // Get unique indexes to detect UNIQUE columns
+    const uniqueColumns = new Set<string>();
+    const indexListSql = `PRAGMA index_list(${tableName})`;
+    const indexRows = await this.all(indexListSql);
+    for (const idxRow of indexRows) {
+      if (idxRow.origin as string === 'u' || idxRow.unique) {
+        // 'u' = created by UNIQUE constraint, 'pk' = primary key, 'c' = create index
+        const indexInfoSql = `PRAGMA index_info(${idxRow.name})`;
+        const indexInfo = await this.all(indexInfoSql);
+        for (const info of indexInfo) {
+          uniqueColumns.add(info.name as string);
+        }
+      }
+    }
+    
     return rows.map(row => ({
       name: row.name as string,
       type: row.type as string,
       notNull: !!row.notnull,
       defaultValue: (row.dflt_value as string | null) ?? null,
       primaryKey: !!row.pk,
-      autoIncrement: row.pk && row.type.toLowerCase().includes('integer') ? true : false
+      autoIncrement: row.pk && (row.type as string).toLowerCase().includes('integer') ? true : false,
+      unique: uniqueColumns.has(row.name as string)
     }));
   }
 
-  private async getTableConstraints(tableName: string): Promise<any[]> {
+  private async getTableConstraints(tableName: string): Promise<ConstraintInfo[]> {
     const sql = `PRAGMA index_list(${tableName})`;
     const rows = await this.all(sql);
-    return rows;
+    return rows.map(row => ({
+      name: row.name as string,
+      type: row.type as string,
+      sql: (row.sql as string) ?? '',
+    }));
   }
 
-  private async getTableForeignKeys(tableName: string): Promise<any[]> {
+  private async getTableForeignKeys(tableName: string): Promise<ForeignKeyInfo[]> {
     const sql = `PRAGMA foreign_key_list(${tableName})`;
     const rows = await this.all(sql);
     return rows.map(row => ({
@@ -204,8 +224,8 @@ export class DatabaseAnalyzer {
     return `Migration required. Issues: ${Object.entries(byType).map(([type, count]) => `${count} ${type}`).join(', ')}`;
   }
 
-  private async all(sql: string): Promise<any[]> {
-    return promisify(this.db.all).bind(this.db)(sql) as Promise<any[]>;
+  private async all(sql: string): Promise<Record<string, unknown>[]> {
+    return promisify(this.db.all).bind(this.db)(sql) as Promise<Record<string, unknown>[]>;
   }
 
   private close(): Promise<void> {

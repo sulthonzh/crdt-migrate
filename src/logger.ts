@@ -27,7 +27,7 @@ export class Logger {
     }
   }
 
-  table(data: any[]): void {
+  table(data: unknown[]): void {
     if (this.verbose) {
       console.table(data);
     }
