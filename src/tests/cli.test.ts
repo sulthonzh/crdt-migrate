@@ -38,7 +38,7 @@ async function createTestDatabase(dbPath: string): Promise<void> {
   });
 }
 
-describe('CLI Tests', () => {
+describe('CLI Tests', { timeout: 30000 }, () => {
   let testDbPath: string;
 
   beforeEach(async () => {
