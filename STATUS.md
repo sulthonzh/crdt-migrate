@@ -1,14 +1,14 @@
 # STATUS.md — crdt-migrate
 
 ## Exceptional Checklist Audit
-**Date:** 2026-07-23 (UTC 2026-07-23 09:34)
+**Date:** 2026-08-01 (UTC 2026-07-31 21:52)
 **Status:** ✅ EXCEPTIONAL
 
 ### Checklist
 
 - [x] **README hooks reader in first 3 lines** — "Automatically migrate SQLite databases to CRDT-compatible schemas. Converts INTEGER primary keys to TEXT UUIDs, resolves foreign key chains, and generates migration SQL — all with a single command."
 - [x] **Quick start works in <2 minutes** — `npm install && npm run build && npx crdt-migrate analyze test.db` (verified)
-- [x] **All tests GREEN (100% pass rate)** — 79/79 tests pass (8 test files)
+- [x] **All tests GREEN (100% pass rate)** — 82/82 tests pass (9 test files)
 - [x] **Test coverage >= 80% on core logic** — 99.24% stmts, 95.38% branches, 100% funcs, 99.57% lines
 - [x] **Zero TypeScript errors** — `tsc --noEmit` clean (strict mode)
 - [x] **Zero ESLint warnings** — `eslint src --ext .ts` clean (local config)
@@ -31,7 +31,8 @@
 | uuid-generator.test.ts | 5 | 100% stmts, 100% branches |
 | coverage-gaps.test.ts | 11 | FK, backup, verbose, error branches |
 | coverage-gap-closures-2.test.ts | 15 | backup, FK ON DELETE/UPDATE, databasePath |
-| **Total** | **79** | **99.24% stmts, 95.38% branches** |
+| coverage-gaps-3.test.ts | 3 | FK NO ACTION default, composite PK, databasePath verification |
+| **Total** | **82** | **99.24% stmts, 95.38% branches** |
 
 ### Issues Fixed This Audit
 1. **UUIDGenerator used Math.random()** — replaced with crypto.randomUUID()
@@ -45,3 +46,12 @@
 1. **CLI test timeout fix** — `cli.test.ts` `should show help` was timing out at 5s default (Node + sqlite3 native load > 5s). Added `{ timeout: 30000 }` to describe block.
 2. **+11 tests** from coverage-gaps.test.ts (committed in this cycle, were written in prior compacted session)
 3. **+15 tests** from coverage-gap-closures-2.test.ts (backup branches, FK ON DELETE/UPDATE, databasePath in SQL, pkColumn undefined)
+
+### Re-Audit 2026-08-01 (UTC 2026-07-31 21:52)
+1. **+3 tests** in coverage-gaps-3.test.ts: FK without explicit ON DELETE/ON UPDATE (SQLite PRAGMA returns "NO ACTION" — confirms lines 276-277 sub-expression paths always taken), composite PK table preview (PRIMARY KEY(a_id, b_id) — confirms line 173 pkColumn lookup), databasePath in SQL comment verification
+2. **Remaining uncovered lines confirmed defensive dead code:**
+   - Line 173 (`if (!pkColumn) return`): SQLite PRAGMA table_info always marks composite PK columns with pk > 0
+   - Line 218 (`|| "unknown.db"`): databasePath always set from constructor argument
+   - Lines 276-277 (`if (fk.onDelete/onUpdate)` false branch): SQLite PRAGMA foreign_key_list always returns "NO ACTION" (truthy string)
+   - Line 319 (`if (mainSQLFile)` false branch): generateMigrationSQL always creates both data + main SQL files
+3. **Commit:** 3220e57 (pushed + verified remote ✅)
