@@ -26,7 +26,7 @@ jobs:
     outputs:
       secrets_found: ${{ steps.scan.outputs.found }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan diff for secrets
@@ -48,7 +48,7 @@ jobs:
     outputs:
       approved: ${{ steps.review.outputs.approved }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Run AI review
@@ -68,7 +68,7 @@ jobs:
     outputs:
       passed: ${{ steps.gate.outputs.passed }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Run quality checks
@@ -94,7 +94,7 @@ jobs:
       needs.quality-gate.outputs.passed == 'true' &&
       github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Approve and merge
         uses: sulthonzh/code-reviewer@main
         with:
