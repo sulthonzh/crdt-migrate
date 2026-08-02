@@ -30,7 +30,7 @@
   "author": "Sulthon Zh",
   "license": "MIT",
   "dependencies": {
-    "commander": "^11.0.0",
+    "commander": "^15.0.0",
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {
