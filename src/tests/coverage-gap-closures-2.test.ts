@@ -23,7 +23,6 @@ async function createTestDatabase(dbPath: string, sql: string): Promise<void> {
 describe('Coverage Gap Closures (2026-07-21)', () => {
   let testDbPath: string;
   let outputDir: string;
-  let migrator: CRDTMigrator;
 
   beforeEach(async () => {
     testDbPath = path.join(__dirname, 'test-db-coverage-2.db');
@@ -53,12 +52,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
     
     await createTestDatabase(testDbPath, sql);
     
-    migrator = new CRDTMigrator(testDbPath, {
-      outputDir,
-      dryRun: false,
-      verbose: false,
-      backup: false  // No backup, test preview=true with backup=false
-    });
+    // (migrator instance is created per-test in each it() block)
   });
 
   afterEach(async () => {
@@ -168,7 +162,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
       const migrationFile = files.find(f => f.startsWith('migration-'));
       expect(migrationFile).toBeDefined();
 
-      const content = await fs.readFile(path.join(outputDir, migrationFile), 'utf-8');
+      const content = await fs.readFile(path.join(outputDir, migrationFile!), 'utf-8');
       
       // The SQL comment should contain the database path
       expect(content).toContain('-- Database:');
@@ -192,7 +186,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
       const migrationFile = files.find(f => f.startsWith('migration-'));
       expect(migrationFile).toBeDefined();
 
-      const content = await fs.readFile(path.join(outputDir, migrationFile), 'utf-8');
+      const content = await fs.readFile(path.join(outputDir, migrationFile!), 'utf-8');
       
       // Should contain ON DELETE CASCADE clause
       expect(content).toContain('ON DELETE CASCADE');
@@ -212,7 +206,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
       const migrationFile = files.find(f => f.startsWith('migration-'));
       expect(migrationFile).toBeDefined();
 
-      const content = await fs.readFile(path.join(outputDir, migrationFile), 'utf-8');
+      const content = await fs.readFile(path.join(outputDir, migrationFile!), 'utf-8');
       
       // Should contain ON UPDATE CASCADE clause
       expect(content).toContain('ON UPDATE CASCADE');
@@ -251,7 +245,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
       const migrationFile = files.find(f => f.startsWith('migration-'));
       expect(migrationFile).toBeDefined();
 
-      const content = await fs.readFile(path.join(outputDir, migrationFile), 'utf-8');
+      const content = await fs.readFile(path.join(outputDir, migrationFile!), 'utf-8');
       
       // Should contain both ON DELETE and ON UPDATE clauses
       expect(content).toContain('ON DELETE SET NULL');
@@ -332,7 +326,7 @@ describe('Coverage Gap Closures (2026-07-21)', () => {
       const migrationFile = files.find(f => f.startsWith('migration-'));
       expect(migrationFile).toBeDefined();
 
-      const content = await fs.readFile(path.join(outputDir, migrationFile), 'utf-8');
+      const content = await fs.readFile(path.join(outputDir, migrationFile!), 'utf-8');
 
       // Should have FK with both ON DELETE and ON UPDATE clauses
       expect(content).toContain('FOREIGN KEY (author_id)');
