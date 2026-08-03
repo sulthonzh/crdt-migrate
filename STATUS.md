@@ -2,6 +2,7 @@
 
 ## Exceptional Checklist Audit
 **Date:** 2026-08-01 (UTC 2026-07-31 21:52)
+**Re-Verified:** 2026-08-03 (UTC 2026-08-03 16:51) — Dependabot merge fix
 **Status:** ✅ EXCEPTIONAL
 
 ### Checklist
@@ -55,3 +56,11 @@
    - Lines 276-277 (`if (fk.onDelete/onUpdate)` false branch): SQLite PRAGMA foreign_key_list always returns "NO ACTION" (truthy string)
    - Line 319 (`if (mainSQLFile)` false branch): generateMigrationSQL always creates both data + main SQL files
 3. **Commit:** 3220e57 (pushed + verified remote ✅)
+
+### Re-Verification 2026-08-03 (UTC 2026-08-03 16:51)
+1. **Merged 8 Dependabot commits** (eslint v10, typescript-eslint v8.65, commander v15, changesets/cli v2.31.1, @types/sqlite3 v5, actions/checkout v7, setup-node v7, renovate.json)
+2. **Fixed TS errors from dep bumps:**
+   - Removed unused class-level `migrator` variable (declared but shadowed in each it() block)
+   - Added non-null assertion on `migrationFile` after `expect().toBeDefined()` guard (5 instances — TS doesn't narrow `Array.find()` via runtime assertions)
+3. **All 82 tests GREEN**, tsc --noEmit clean
+4. **Commit:** 564488e (pushed + verified remote ✅)
