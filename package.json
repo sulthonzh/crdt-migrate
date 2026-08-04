@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "@types/sqlite3": "^5.0.0",
     "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.62.1",
