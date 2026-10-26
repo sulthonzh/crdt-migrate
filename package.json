@@ -39,11 +39,11 @@
     "@types/sqlite3": "^5.0.0",
     "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.62.1",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.0.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.0",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "files": [
     "dist",
